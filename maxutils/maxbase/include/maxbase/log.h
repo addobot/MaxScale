@@ -156,6 +156,13 @@ bool mxb_log_set_priority_enabled(int priority, bool enabled);
 bool mxb_log_get_session_trace();
 
 /**
+ * Convert log level to string
+ */
+const char* mxb_log_level_to_string(int level);
+
+int mxb_log_prefix_to_level(const char* str);
+
+/**
  * Query whether a particular syslog priority is enabled.
  *
  * @param priority  One of the LOG_ERR etc. constants from sys/syslog.h.

@@ -773,7 +773,7 @@ HttpResponse cb_alter_maxscale(const HttpRequest& request)
 
 HttpResponse cb_logs(const HttpRequest& request)
 {
-    return HttpResponse(MHD_HTTP_OK, mxs_logs_to_json(request.host()));
+    return HttpResponse(MHD_HTTP_OK, mxs_logs_to_json(request.host(), request.get_option("page")));
 }
 
 HttpResponse cb_flush(const HttpRequest& request)

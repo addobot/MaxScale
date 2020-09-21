@@ -79,7 +79,7 @@ int mxs_get_log_rotation_count();
 #define mxs_log_set_syslog_enabled        mxb_log_set_syslog_enabled
 #define mxs_log_set_throttling            mxb_log_set_throttling
 
-json_t* mxs_logs_to_json(const char* host);
+json_t* mxs_logs_to_json(const char* host, const std::string& cursor);
 
 #define MXS_LOG_MESSAGE MXB_LOG_MESSAGE
 
