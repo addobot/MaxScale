@@ -404,31 +404,31 @@ json_t* mxs_logs_to_json(const char* host, const std::string& cursor)
 
     if (!cursors.first.empty())
     {
-        auto first = base + "?page=" + cursors.first;
+        auto first = base + "?page[cursor]=" + cursors.first;
         json_object_set_new(links, "first", json_string(first.c_str()));
     }
 
     if (!cursors.previous.empty())
     {
-        auto prev = base + "?page=" + cursors.previous;
+        auto prev = base + "?page[cursor]=" + cursors.previous;
         json_object_set_new(links, "prev", json_string(prev.c_str()));
     }
 
     if (!cursors.next.empty())
     {
-        auto next = base + "?page=" + cursors.next;
+        auto next = base + "?page[cursor]=" + cursors.next;
         json_object_set_new(links, "next", json_string(next.c_str()));
     }
 
     if (!cursors.current.empty())
     {
-        auto self = base + "?page=" + cursors.current;
+        auto self = base + "?page[cursor]=" + cursors.current;
         json_object_set_new(links, "self", json_string(self.c_str()));
     }
 
     if (!cursors.last.empty())
     {
-        auto last = base + "?page=" + cursors.last;
+        auto last = base + "?page[cursor]=" + cursors.last;
         json_object_set_new(links, "last", json_string(last.c_str()));
     }
 
