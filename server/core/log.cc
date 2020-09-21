@@ -85,7 +85,6 @@ namespace
 struct Cursors
 {
     std::string first;
-    std::string last;
     std::string current;
     std::string next;
     std::string previous;
@@ -183,10 +182,6 @@ std::pair<json_t*, Cursors> get_syslog_data(const std::string& cursor)
         {
             cursors.next = get_cursor();
         }
-
-        sd_journal_seek_tail(j);
-        sd_journal_previous(j);
-        cursors.last = get_cursor();
     }
 
     sd_journal_close(j);
@@ -303,9 +298,12 @@ std::pair<json_t*, Cursors> get_maxlog_data(const std::string& cursor)
 
         cursors.first = "0";
         cursors.previous = std::to_string(n > 50 ? n - 50 : 0);
-        cursors.next = std::to_string(end > n + 50 ? n + 50 : end);
         cursors.current = std::to_string(n);
-        cursors.last = std::to_string(end);
+
+        if (end > n + 50)
+        {
+            cursors.next = std::to_string(n + 50);
+        }
     }
 
     return {arr, cursors};
@@ -426,11 +424,7 @@ json_t* mxs_logs_to_json(const char* host, const std::string& cursor)
         json_object_set_new(links, "self", json_string(self.c_str()));
     }
 
-    if (!cursors.last.empty())
-    {
-        auto last = base + "?page[cursor]=" + cursors.last;
-        json_object_set_new(links, "last", json_string(last.c_str()));
-    }
+    json_object_set_new(links, "last", json_string(base.c_str()));
 
     return rval;
 }
