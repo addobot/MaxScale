@@ -40,6 +40,11 @@ public:
     int handle(const std::string& url, const std::string& method,
                const char* upload_data, size_t* upload_data_size);
 
+    void ws_open(const std::string& url);
+    bool ws_upgraded(int socket);
+    bool ws_write(int socket, const std::string& data);
+    void ws_close(int socket);
+
 private:
     enum state
     {
@@ -109,6 +114,10 @@ private:
     state           m_state;        /**< Client state */
     std::string     m_user;         /**< The user account */
     Headers         m_headers;
+
+
+    std::string m_url;          // The URL requested by the WebSocket upgrade
+    std::string m_prev_cksum;   // Checksum of the previous result, used to remove duplicate events
 
     HttpResponse generate_token(const HttpRequest& request);
     bool         auth_with_token(const std::string& token);

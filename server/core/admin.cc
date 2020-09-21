@@ -36,6 +36,7 @@
 #include <maxscale/clock.h>
 #include <maxscale/http.hh>
 #include <maxscale/paths.hh>
+#include <maxscale/mainworker.hh>
 
 #include "internal/adminusers.hh"
 #include "internal/resource.hh"
@@ -164,6 +165,36 @@ int handle_client(void* cls,
 
     Client* client = static_cast<Client*>(*con_cls);
     return client->handle(url, method, upload_data, upload_data_size);
+}
+
+void handle_upgrade(void* cls, MHD_Connection* connection, void* con_cls,
+                    const char* extra_in, size_t extra_in_size,
+                    int socket, MHD_UpgradeResponseHandle* urh)
+{
+    Client* client = reinterpret_cast<Client*>(cls);
+
+    auto func = [client, socket, urh](auto action) {
+            if (action == mxb::Worker::Call::EXECUTE && client->ws_upgraded(socket))
+            {
+                return true;
+            }
+            else
+            {
+                client->ws_close(socket);
+                MHD_upgrade_action(urh, MHD_UPGRADE_ACTION_CLOSE);
+                return false;
+            }
+        };
+
+    // Send the initial payload
+    if (!client->ws_upgraded(socket))
+    {
+        MHD_upgrade_action(urh, MHD_UPGRADE_ACTION_CLOSE);
+    }
+    else
+    {
+        mxs::MainWorker::get()->delayed_call(500, func);
+    }
 }
 
 static bool host_to_sockaddr(const char* host, uint16_t port, struct sockaddr_storage* addr)
@@ -576,6 +607,95 @@ bool Client::serve_file(const std::string& url) const
     return rval;
 }
 
+void Client::ws_open(const std::string& url)
+{
+    auto key = get_header("Sec-WebSocket-Key") + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+    uint8_t digest[SHA_DIGEST_LENGTH];
+    SHA1((uint8_t*)key.data(), key.size(), digest);
+    auto encoded = mxs::to_base64(digest, sizeof(digest));
+
+    auto resp = MHD_create_response_for_upgrade(handle_upgrade, this);
+    MHD_add_response_header(resp, "Sec-WebSocket-Accept", encoded.c_str());
+    MHD_add_response_header(resp, "Upgrade", "websocket");
+    MHD_add_response_header(resp, "Connection", "Upgrade");
+
+    // This isn't exactly correct but it'll do for now
+    MHD_add_response_header(resp, "Sec-WebSocket-Protocol", get_header("Sec-WebSocket-Protocol").c_str());
+
+    MHD_queue_response(m_connection, MHD_HTTP_SWITCHING_PROTOCOLS, resp);
+    MHD_destroy_response(resp);
+
+    // Stash the URL as a request so that we can repeatedly do it
+    m_url = url;
+}
+
+bool Client::ws_upgraded(int socket)
+{
+    bool rval = true;
+    HttpRequest request(m_connection, m_url, MHD_HTTP_METHOD_GET, nullptr);
+    HttpResponse response = resource_handle_request(request);
+
+    if (response.get_code() == MHD_HTTP_OK)
+    {
+        mxb_assert(response.get_response());
+
+        auto data = mxs::json_dump(response.get_response(), JSON_COMPACT);
+        auto cksum = '"' + mxs::checksum<mxs::CRC32Checksum>(data) + '"';
+
+        if (cksum != m_prev_cksum)
+        {
+            m_prev_cksum = cksum;
+            rval = ws_write(socket, data);
+        }
+    }
+    else
+    {
+        rval = false;
+    }
+
+    return rval;
+}
+
+void Client::ws_close(int socket)
+{
+    uint8_t header[2] = {0x81, 0x0};
+    write(socket, header, 2);
+}
+
+bool Client::ws_write(int socket, const std::string& data)
+{
+    // First bit is for text type frame, last bit is for final frame
+    uint8_t header[10] = {0x81};
+
+    if (data.size() < 126)
+    {
+        header[1] = data.size();
+        write(socket, header, 2);
+    }
+    else if (data.size() < 65535)
+    {
+        header[1] = 126;
+        header[2] = data.size() >> 8;
+        header[3] = data.size();
+        write(socket, header, 4);
+    }
+    else
+    {
+        header[1] = 127;
+        header[2] = data.size() >> 56;
+        header[3] = data.size() >> 48;
+        header[4] = data.size() >> 40;
+        header[5] = data.size() >> 32;
+        header[6] = data.size() >> 24;
+        header[7] = data.size() >> 16;
+        header[8] = data.size() >> 8;
+        header[9] = data.size();
+        write(socket, header, 10);
+    }
+
+    return write(socket, data.data(), data.size()) != -1;
+}
+
 int Client::handle(const std::string& url, const std::string& method,
                    const char* upload_data, size_t* upload_data_size)
 {
@@ -671,6 +791,11 @@ int Client::process(string url, string method, const char* upload_data, size_t* 
     {
         reply = generate_token(request);
     }
+    else if (request.get_option("watch") == "true")
+    {
+        ws_open(url);
+        return MHD_YES;
+    }
     else
     {
         reply = resource_handle_request(request);
@@ -686,6 +811,10 @@ int Client::process(string url, string method, const char* upload_data, size_t* 
         if (pretty == "true" || pretty.length() == 0)
         {
             flags |= JSON_INDENT(4);
+        }
+        else
+        {
+            flags = JSON_COMPACT;
         }
 
         data = mxs::json_dump(js, flags);
@@ -910,7 +1039,7 @@ bool mxs_admin_init()
     }
     else if (host_to_sockaddr(config.admin_host.c_str(), config.admin_port, &addr))
     {
-        int options = MHD_USE_EPOLL_INTERNALLY_LINUX_ONLY | MHD_USE_DEBUG;
+        int options = MHD_USE_EPOLL_INTERNALLY_LINUX_ONLY | MHD_USE_DEBUG | MHD_ALLOW_UPGRADE;
 
         if (addr.ss_family == AF_INET6)
         {
