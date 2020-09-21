@@ -147,6 +147,8 @@ std::pair<json_t*, Cursors> get_syslog_data(const std::string& cursor)
             size_t length;
             json_t* obj = json_object();
 
+            json_object_set_new(obj, "id", json_string(get_cursor().c_str()));
+
             while (sd_journal_enumerate_data(j, &data, &length) > 0)
             {
                 std::string s((const char*)data, length);
@@ -220,6 +222,8 @@ std::pair<json_t*, Cursors> get_maxlog_data(const std::string& cursor)
             file.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
         }
 
+        int lineno = n;
+
         for (std::string line; std::getline(file, line);)
         {
             // The timestamp is always the same size followed by three empty spaces. If high precision logging
@@ -230,19 +234,8 @@ std::pair<json_t*, Cursors> get_maxlog_data(const std::string& cursor)
 
             if (captures.empty())
             {
-                // Likely a multi-line message, append it to the previous object
-                auto sz = json_array_size(arr);
-
-                if (sz > 0)
-                {
-                    json_t* prev = json_array_get(arr, sz - 1);
-                    mxb_assert(json_object_get(prev, "message"));
-
-                    std::string msg = json_string_value(json_object_get(prev, "message"));
-                    msg += line;
-                    json_object_set_new(prev, "message", json_string(msg.c_str()));
-                }
-
+                // Could be a multi-line message but it can also be one of the log delimiters. We ignore it as
+                // the main interest is in complete messages.
                 continue;
             }
 
@@ -286,6 +279,7 @@ std::pair<json_t*, Cursors> get_maxlog_data(const std::string& cursor)
             json_object_set_new(obj, "message", json_string(line.c_str()));
             json_object_set_new(obj, "timestamp", json_string(timestamp.c_str()));
             json_object_set_new(obj, "priority", json_string(priority.c_str()));
+            json_object_set_new(obj, "id", json_string(std::to_string(lineno).c_str()));
 
             if (!session.empty())
             {
@@ -303,6 +297,8 @@ std::pair<json_t*, Cursors> get_maxlog_data(const std::string& cursor)
             }
 
             json_array_append_new(arr, obj);
+
+            ++lineno;
         }
 
         cursors.first = "0";
